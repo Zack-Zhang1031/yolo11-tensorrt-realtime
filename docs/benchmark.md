@@ -8,6 +8,8 @@
 - Measured runs: 200
 - Statistics: arithmetic mean, median/P50, P95, and FPS
 
+Rectangular dynamic inputs are reported as `(height, width)` rather than collapsed into a scalar.
+
 The benchmark scripts exclude image decode, letterbox preprocessing, NMS, drawing, display, and
 video encoding. PyTorch measures a forward pass with an input already resident on the selected
 device. ONNX Runtime measures one session call. TensorRT measures host-to-device copy, engine

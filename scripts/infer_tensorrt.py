@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--engine", type=Path, required=True)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("outputs/tensorrt-detection.jpg"))
+    parser.add_argument("--imgsz", type=int, help="Runtime size for a dynamic engine")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--iou", type=float, default=0.45)
     return parser.parse_args()
@@ -27,7 +28,7 @@ def main() -> int:
     args = parse_args()
     configure_logging()
     image = load_bgr_image(args.source)
-    with TensorRTDetector(args.engine, args.conf, args.iou) as detector:
+    with TensorRTDetector(args.engine, args.conf, args.iou, image_size=args.imgsz) as detector:
         detections = detector.predict(image)
     output = ensure_parent(args.output)
     if not cv2.imwrite(str(output), draw_detections(image, detections)):
@@ -39,4 +40,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

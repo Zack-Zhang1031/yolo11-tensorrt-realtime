@@ -3,6 +3,5 @@ opencv-python>=4.9
 torch>=2.2
 ultralytics>=8.3.0
 onnx>=1.16
+# CPU default. Replace with onnxruntime-gpu for CUDA Execution Provider.
 onnxruntime>=1.18
-pytest>=8.0
-

@@ -15,6 +15,7 @@ from yolo11_deploy.utils import configure_logging
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", type=Path, required=True)
+    parser.add_argument("--imgsz", type=int, help="Runtime size for a dynamic engine")
     parser.add_argument("--runs", type=int, default=200)
     parser.add_argument("--warmup", type=int, default=50)
     return parser.parse_args()
@@ -23,14 +24,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     configure_logging()
-    with TensorRTDetector(args.engine) as detector:
+    with TensorRTDetector(args.engine, image_size=args.imgsz) as detector:
         tensor = np.zeros(detector.input_shape, dtype=detector.input_dtype)
         result = run_benchmark(
             lambda: detector.infer_raw(tensor),
             BenchmarkConfig(
                 "TensorRT",
                 "FP16" if detector.input_dtype == np.float16 else str(detector.input_dtype),
-                detector.input_shape[-1],
+                (detector.input_shape[-2], detector.input_shape[-1]),
                 1,
                 args.warmup,
                 args.runs,

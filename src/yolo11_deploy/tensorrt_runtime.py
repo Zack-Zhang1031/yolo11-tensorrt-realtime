@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import ast
+import ctypes
+import importlib
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +15,7 @@ import numpy as np
 
 from .detector import Detection
 from .postprocessing import decode_yolo_output
-from .preprocessing import preprocess_image
+from .preprocessing import LetterboxInfo, preprocess_image
 from .utils import load_bgr_image, normalize_names
 
 LOGGER = logging.getLogger(__name__)
@@ -20,15 +23,14 @@ LOGGER = logging.getLogger(__name__)
 
 def _load_cuda_runtime() -> Any:
     try:
-        from cuda.bindings import runtime as cudart
+        return importlib.import_module("cuda.bindings.runtime")
     except ImportError:
         try:
-            from cuda import cudart
+            return importlib.import_module("cuda.cudart")
         except ImportError as exc:
             raise RuntimeError(
                 "cuda-python is required for TensorRT inference. Install requirements-tensorrt.txt."
             ) from exc
-    return cudart
 
 
 def _check_cuda(result: tuple[Any, ...] | Any, operation: str) -> Any:
@@ -51,8 +53,19 @@ def require_cuda_device() -> tuple[Any, int]:
     return cudart, device_count
 
 
+@dataclass(slots=True)
+class TensorBuffer:
+    """TensorRT I/O tensor allocation with pinned host and CUDA device memory."""
+
+    name: str
+    shape: tuple[int, ...]
+    dtype: np.dtype[Any]
+    host: np.ndarray
+    device: int
+
+
 class TensorRTDetector:
-    """TensorRT 10.x inference runner for static-batch YOLO11 engines."""
+    """TensorRT 10.x inference runner for trusted YOLO11 engine files."""
 
     def __init__(
         self,
@@ -60,20 +73,44 @@ class TensorRTDetector:
         confidence: float = 0.25,
         iou: float = 0.45,
         class_names: dict[int, str] | list[str] | None = None,
+        image_size: int | tuple[int, int] | None = None,
     ) -> None:
+        self._closed = False
+        self.cudart: Any = None
+        self.logger: Any = None
+        self.runtime: Any = None
+        self.engine: Any = None
+        self.context: Any = None
+        self.stream: Any = None
+        self.buffers: dict[str, TensorBuffer] = {}
         try:
-            import tensorrt as trt
+            self._initialize(engine_path, confidence, iou, class_names, image_size)
+        except Exception:
+            self.close(suppress_errors=True)
+            raise
+
+    def _initialize(
+        self,
+        engine_path: str | Path,
+        confidence: float,
+        iou: float,
+        class_names: dict[int, str] | list[str] | None,
+        image_size: int | tuple[int, int] | None,
+    ) -> None:
+        if not 0.0 <= confidence <= 1.0 or not 0.0 <= iou <= 1.0:
+            raise ValueError("Confidence and IoU thresholds must be within [0, 1]")
+        try:
+            import tensorrt as trt  # pyright: ignore[reportMissingImports]
         except ImportError as exc:
-            raise RuntimeError(
-                "TensorRT is optional and requires NVIDIA GPU/CUDA/TensorRT."
-            ) from exc
+            raise RuntimeError("TensorRT 10.x and an NVIDIA CUDA environment are required") from exc
         major = int(trt.__version__.split(".", maxsplit=1)[0])
-        if major < 10:
-            raise RuntimeError(f"This runner targets TensorRT 10.x; found {trt.__version__}")
+        if major != 10:
+            raise RuntimeError(f"This runner supports TensorRT 10.x; found {trt.__version__}")
 
         path = Path(engine_path).expanduser().resolve()
         if not path.is_file() or path.stat().st_size == 0:
             raise FileNotFoundError(f"Non-empty TensorRT engine not found: {path}")
+        LOGGER.warning("Deserialize only TensorRT engines from a trusted source: %s", path)
         self.trt = trt
         self.cudart, _ = require_cuda_device()
         self.logger = trt.Logger(trt.Logger.WARNING)
@@ -84,9 +121,7 @@ class TensorRTDetector:
         self.context = self.engine.create_execution_context()
         if self.context is None:
             raise RuntimeError("TensorRT could not create an execution context")
-        self.stream = _check_cuda(self.cudart.cudaStreamCreate(), "cudaStreamCreate")
-        self.device_buffers: dict[str, int] = {}
-        self.host_outputs: dict[str, np.ndarray] = {}
+        self.stream = int(_check_cuda(self.cudart.cudaStreamCreate(), "cudaStreamCreate"))
         self.tensor_names = [
             self.engine.get_tensor_name(index) for index in range(self.engine.num_io_tensors)
         ]
@@ -102,8 +137,7 @@ class TensorRTDetector:
         self.confidence = confidence
         self.iou = iou
         self.names = normalize_names(class_names or self._sidecar_names(path))
-        self._closed = False
-        self._allocate()
+        self.set_input_shape(image_size)
 
     @staticmethod
     def _sidecar_names(engine_path: Path) -> object:
@@ -118,49 +152,111 @@ class TensorRTDetector:
             LOGGER.warning("Could not parse TensorRT sidecar metadata: %s", metadata_path)
             return {}
 
-    def _allocate(self) -> None:
-        input_shape = tuple(self.context.get_tensor_shape(self.input_name))
-        if any(dimension < 0 for dimension in input_shape):
-            profile_shape = tuple(self.engine.get_tensor_profile_shape(self.input_name, 0)[1])
-            if not self.context.set_input_shape(self.input_name, profile_shape):
-                raise RuntimeError(
-                    f"TensorRT rejected optimization-profile input shape {profile_shape}"
+    def set_input_shape(self, size: int | tuple[int, int] | None = None) -> None:
+        """Select a static or profile-valid dynamic shape and reallocate all I/O buffers."""
+        self._require_open()
+        engine_shape = tuple(self.engine.get_tensor_shape(self.input_name))
+        is_dynamic = any(dimension < 0 for dimension in engine_shape)
+        if is_dynamic:
+            if size is None:
+                target_shape = tuple(self.engine.get_tensor_profile_shape(self.input_name, 0)[1])
+            else:
+                height, width = (size, size) if isinstance(size, int) else size
+                target_shape = (1, 3, height, width)
+            minimum, _, maximum = self.engine.get_tensor_profile_shape(self.input_name, 0)
+            if any(
+                value < low or value > high
+                for value, low, high in zip(target_shape, minimum, maximum, strict=True)
+            ):
+                raise ValueError(
+                    f"Input shape {target_shape} is outside profile range {minimum}..{maximum}"
                 )
+            if not self.context.set_input_shape(self.input_name, target_shape):
+                raise RuntimeError(f"TensorRT rejected input shape {target_shape}")
+        elif size is not None:
+            height, width = (size, size) if isinstance(size, int) else size
+            requested = (1, 3, height, width)
+            if requested != engine_shape:
+                raise ValueError(
+                    f"Static engine requires input shape {engine_shape}, got {requested}"
+                )
+        infer_shapes = getattr(self.context, "infer_shapes", None)
+        if infer_shapes is not None:
+            unresolved = infer_shapes()
+            if unresolved:
+                raise RuntimeError(
+                    "TensorRT could not resolve tensor shapes; missing inputs: "
+                    + ", ".join(str(name) for name in unresolved)
+                )
+        self._allocate_buffers()
 
-        for name in self.tensor_names:
-            shape = tuple(self.context.get_tensor_shape(name))
-            if any(dimension < 0 for dimension in shape):
-                raise RuntimeError(f"Unresolved dynamic TensorRT shape for {name}: {shape}")
-            dtype = np.dtype(self.trt.nptype(self.engine.get_tensor_dtype(name)))
-            host = np.empty(shape, dtype=dtype)
-            device = _check_cuda(self.cudart.cudaMalloc(host.nbytes), f"cudaMalloc({name})")
-            self.device_buffers[name] = int(device)
-            self.context.set_tensor_address(name, int(device))
-            if name in self.output_names:
-                self.host_outputs[name] = host
-            elif name == self.input_name:
-                self.input_shape = shape
-                self.input_dtype = dtype
+    def _allocate_buffers(self) -> None:
+        self._free_buffers(suppress_errors=False)
+        try:
+            for name in self.tensor_names:
+                shape = tuple(self.context.get_tensor_shape(name))
+                if any(dimension < 0 for dimension in shape):
+                    raise RuntimeError(f"Unresolved TensorRT shape for {name}: {shape}")
+                dtype = np.dtype(self.trt.nptype(self.engine.get_tensor_dtype(name)))
+                nbytes = int(np.prod(shape)) * dtype.itemsize
+                host_pointer = int(
+                    _check_cuda(
+                        self.cudart.cudaMallocHost(nbytes),
+                        f"cudaMallocHost({name})",
+                    )
+                )
+                device: int | None = None
+                try:
+                    host = (
+                        np.ctypeslib.as_array((ctypes.c_byte * nbytes).from_address(host_pointer))
+                        .view(dtype)
+                        .reshape(shape)
+                    )
+                    device = int(_check_cuda(self.cudart.cudaMalloc(nbytes), f"cudaMalloc({name})"))
+                    if not self.context.set_tensor_address(name, device):
+                        raise RuntimeError(f"TensorRT rejected device address for tensor {name}")
+                except Exception:
+                    if device is not None:
+                        try:
+                            _check_cuda(self.cudart.cudaFree(device), f"cudaFree({name})")
+                        except Exception:
+                            LOGGER.exception("Failed to roll back device allocation for %s", name)
+                    try:
+                        _check_cuda(self.cudart.cudaFreeHost(host_pointer), f"cudaFreeHost({name})")
+                    except Exception:
+                        LOGGER.exception("Failed to roll back host allocation for %s", name)
+                    raise
+                self.buffers[name] = TensorBuffer(name, shape, dtype, host, device)
+        except Exception:
+            self._free_buffers(suppress_errors=True)
+            raise
+        input_buffer = self.buffers[self.input_name]
+        self.input_shape = input_buffer.shape
+        self.input_dtype = input_buffer.dtype
 
-    def prepare(self, source: str | Path | np.ndarray) -> tuple[np.ndarray, object]:
-        """Prepare a BGR image for this engine's NCHW input."""
+    def prepare(self, source: str | Path | np.ndarray) -> tuple[np.ndarray, LetterboxInfo]:
+        """Prepare a BGR image for the currently selected NCHW engine input."""
         image = load_bgr_image(source)
-        if len(self.input_shape) != 4 or self.input_shape[0] != 1 or self.input_shape[1] != 3:
-            raise ValueError(f"Expected static [1,3,H,W] TensorRT input, got {self.input_shape}")
+        if len(self.input_shape) != 4 or self.input_shape[:2] != (1, 3):
+            raise ValueError(f"Expected [1,3,H,W] TensorRT input, got {self.input_shape}")
         return preprocess_image(image, self.input_shape[-2:], self.input_dtype)
 
     def infer_raw(self, tensor: np.ndarray) -> list[np.ndarray]:
         """Copy input, enqueue inference, copy outputs, and synchronize the CUDA stream."""
-        tensor = np.ascontiguousarray(tensor, dtype=self.input_dtype)
-        expected = int(np.prod(self.input_shape))
-        if tensor.size != expected:
-            raise ValueError(f"Input has {tensor.size} values; engine expects {expected}")
+        self._require_open()
+        input_buffer = self.buffers[self.input_name]
+        tensor = np.ascontiguousarray(tensor, dtype=input_buffer.dtype)
+        if tensor.shape != input_buffer.shape:
+            raise ValueError(
+                f"Input shape {tensor.shape} does not match engine {input_buffer.shape}"
+            )
+        np.copyto(input_buffer.host, tensor)
         kind = self.cudart.cudaMemcpyKind
         _check_cuda(
             self.cudart.cudaMemcpyAsync(
-                self.device_buffers[self.input_name],
-                tensor.ctypes.data,
-                tensor.nbytes,
+                input_buffer.device,
+                input_buffer.host.ctypes.data,
+                input_buffer.host.nbytes,
                 kind.cudaMemcpyHostToDevice,
                 self.stream,
             ),
@@ -168,22 +264,24 @@ class TensorRTDetector:
         )
         if not self.context.execute_async_v3(stream_handle=self.stream):
             raise RuntimeError("TensorRT execute_async_v3 returned false")
-        for name, host in self.host_outputs.items():
+        for name in self.output_names:
+            buffer = self.buffers[name]
             _check_cuda(
                 self.cudart.cudaMemcpyAsync(
-                    host.ctypes.data,
-                    self.device_buffers[name],
-                    host.nbytes,
+                    buffer.host.ctypes.data,
+                    buffer.device,
+                    buffer.host.nbytes,
                     kind.cudaMemcpyDeviceToHost,
                     self.stream,
                 ),
                 f"output cudaMemcpyAsync({name})",
             )
         self.synchronize()
-        return [self.host_outputs[name].copy() for name in self.output_names]
+        return [self.buffers[name].host.copy() for name in self.output_names]
 
     def synchronize(self) -> None:
         """Synchronize the runner's CUDA stream for correct timing."""
+        self._require_open()
         _check_cuda(self.cudart.cudaStreamSynchronize(self.stream), "cudaStreamSynchronize")
 
     def predict(self, source: str | Path | np.ndarray) -> list[Detection]:
@@ -195,19 +293,52 @@ class TensorRTDetector:
             self.names = normalize_names(None, max(0, channels - 4))
         return decode_yolo_output(outputs, info, self.names, self.confidence, self.iou)
 
-    def close(self) -> None:
-        """Release CUDA allocations and the stream."""
+    def _free_buffers(self, *, suppress_errors: bool) -> None:
+        if self.cudart is None:
+            self.buffers.clear()
+            return
+        errors: list[Exception] = []
+        for buffer in list(self.buffers.values()):
+            try:
+                _check_cuda(self.cudart.cudaFree(buffer.device), f"cudaFree({buffer.name})")
+            except Exception as exc:
+                errors.append(exc)
+            try:
+                _check_cuda(
+                    self.cudart.cudaFreeHost(buffer.host.ctypes.data),
+                    f"cudaFreeHost({buffer.name})",
+                )
+            except Exception as exc:
+                errors.append(exc)
+        self.buffers.clear()
+        if errors and not suppress_errors:
+            raise RuntimeError(f"Failed to release {len(errors)} TensorRT buffer allocation(s)")
+
+    def close(self, *, suppress_errors: bool = False) -> None:
+        """Release CUDA allocations before context, engine, and runtime references."""
         if self._closed:
             return
-        for device in self.device_buffers.values():
-            _check_cuda(self.cudart.cudaFree(device), "cudaFree")
-        _check_cuda(self.cudart.cudaStreamDestroy(self.stream), "cudaStreamDestroy")
-        self.device_buffers.clear()
-        self.host_outputs.clear()
+        errors: list[Exception] = []
+        try:
+            self._free_buffers(suppress_errors=False)
+        except Exception as exc:
+            errors.append(exc)
+        if self.cudart is not None and self.stream is not None:
+            try:
+                _check_cuda(self.cudart.cudaStreamDestroy(self.stream), "cudaStreamDestroy")
+            except Exception as exc:
+                errors.append(exc)
+        self.stream = None
         self.context = None
         self.engine = None
         self.runtime = None
         self._closed = True
+        if errors and not suppress_errors:
+            raise RuntimeError(f"Failed to release {len(errors)} TensorRT resource(s)")
+
+    def _require_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("TensorRT detector is closed")
 
     def __enter__(self) -> TensorRTDetector:
         return self
@@ -217,7 +348,4 @@ class TensorRTDetector:
 
     def __del__(self) -> None:
         if hasattr(self, "_closed") and not self._closed:
-            try:
-                self.close()
-            except Exception:
-                pass
+            self.close(suppress_errors=True)

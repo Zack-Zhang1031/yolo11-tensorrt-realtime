@@ -13,8 +13,14 @@ python -c "import tensorrt as trt; print(trt.__version__)"
 python -c "from cuda.bindings import runtime; print(runtime.cudaRuntimeGetVersion())"
 ```
 
-The basic package must remain usable when either TensorRT or `cuda-python` is absent. The project
-does not automatically install or change the system CUDA toolkit.
+The basic package remains usable when either TensorRT or `cuda-python` is absent. The project does
+not install or change the system CUDA toolkit. TensorRT is intentionally constrained to major
+version 10 because its Python runtime API and serialized engines are version-sensitive.
+
+Install ONNX Runtime CPU and GPU distributions in separate environments. Use `.[onnx-cpu]` for a
+CPU environment or `.[onnx-gpu]` for a CUDA Execution Provider environment. Explicit
+`--device cuda` selection fails if CUDA cannot be activated; use `--device auto` only when CPU
+fallback is acceptable.
 
 ## Pipeline
 
@@ -25,6 +31,13 @@ does not automatically install or change the system CUDA toolkit.
 5. Run one TensorRT image inference before benchmarking.
 6. Benchmark with warmup and synchronized streams.
 
+Dynamic engines select an input size within the build profile at runtime. Passing `--imgsz` causes
+the runtime to resolve tensor shapes and replace its pinned-host and CUDA-device allocations.
+
+TensorRT engine deserialization processes a binary artifact. Load engines only from a trusted
+source and rebuild from ONNX when moving across GPU architectures, TensorRT releases, or CUDA
+environments.
+
 ## Failure Boundaries
 
 - A missing weight may require first-run internet access or a local `--model` path.
@@ -32,3 +45,5 @@ does not automatically install or change the system CUDA toolkit.
 - The core package and CPU validation remain available without a TensorRT installation.
 - An ONNX parser error should be resolved at export/model compatibility, not hidden.
 - FP16 build fails explicitly if the platform does not report fast FP16 support.
+- An input outside a dynamic optimization profile fails before inference.
+- An unresolved output shape fails before memory allocation.

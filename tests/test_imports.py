@@ -18,4 +18,3 @@ import pytest
 )
 def test_package_modules_import_without_optional_tensorrt(module: str) -> None:
     assert importlib.import_module(module) is not None
-

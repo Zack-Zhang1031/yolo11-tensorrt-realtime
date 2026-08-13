@@ -10,7 +10,7 @@ import numpy as np
 
 from .detector import Detection
 from .postprocessing import decode_yolo_output
-from .preprocessing import preprocess_image
+from .preprocessing import LetterboxInfo, preprocess_image
 from .utils import load_bgr_image, normalize_names
 
 LOGGER = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ class ONNXDetector:
         device: str = "auto",
         class_names: dict[int, str] | list[str] | None = None,
         image_size: int | tuple[int, int] = 640,
+        device_id: int = 0,
     ) -> None:
         try:
             import onnxruntime as ort
@@ -41,12 +42,26 @@ class ONNXDetector:
             raise ValueError("device must be one of: auto, cpu, cuda")
         if device == "cuda" and "CUDAExecutionProvider" not in available:
             raise RuntimeError("CUDAExecutionProvider was requested but is not available")
-        providers = (
-            ["CUDAExecutionProvider", "CPUExecutionProvider"]
-            if device in {"auto", "cuda"} and "CUDAExecutionProvider" in available
-            else ["CPUExecutionProvider"]
-        )
+        if device_id < 0:
+            raise ValueError("device_id must be non-negative")
+        if device in {"auto", "cuda"} and "CUDAExecutionProvider" in available:
+            preload = getattr(ort, "preload_dlls", None)
+            if callable(preload):
+                preload()
+            cuda_provider = ("CUDAExecutionProvider", {"device_id": device_id})
+            providers = (
+                [cuda_provider] if device == "cuda" else [cuda_provider, "CPUExecutionProvider"]
+            )
+        else:
+            providers = ["CPUExecutionProvider"]
         self.session = ort.InferenceSession(str(path), providers=providers)
+        if device == "cuda":
+            active = self.session.get_providers()
+            if not active or active[0] != "CUDAExecutionProvider":
+                raise RuntimeError(f"CUDAExecutionProvider was not activated: {active}")
+            disable_fallback = getattr(self.session, "disable_fallback", None)
+            if callable(disable_fallback):
+                disable_fallback()
         self.input = self.session.get_inputs()[0]
         if self.input.type not in {"tensor(float)", "tensor(float16)"}:
             raise ValueError(f"Unsupported ONNX input type: {self.input.type}")
@@ -54,6 +69,7 @@ class ONNXDetector:
         self.confidence = confidence
         self.iou = iou
         self.providers = self.session.get_providers()
+        self.device_id = device_id if self.providers[0] == "CUDAExecutionProvider" else None
         self.names = normalize_names(class_names or self._metadata_names())
         self.input_size = self._input_size(image_size)
         LOGGER.info("ONNX Runtime providers: %s", self.providers)
@@ -82,7 +98,7 @@ class ONNXDetector:
             raise ValueError("ONNX inference dimensions must be positive")
         return resolved_height, resolved_width
 
-    def prepare(self, source: str | Path | np.ndarray) -> tuple[np.ndarray, object]:
+    def prepare(self, source: str | Path | np.ndarray) -> tuple[np.ndarray, LetterboxInfo]:
         """Prepare one source image for inference."""
         image = load_bgr_image(source)
         dtype = np.float16 if self.input.type == "tensor(float16)" else np.float32

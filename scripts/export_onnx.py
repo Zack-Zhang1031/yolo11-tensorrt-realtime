@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from yolo11_deploy.onnx_validation import validate_onnx_artifact
 from yolo11_deploy.utils import configure_logging, ensure_parent
 
 
@@ -26,7 +27,7 @@ def main() -> int:
     if args.half and args.device == "cpu":
         raise ValueError("--half requires a CUDA device for Ultralytics ONNX export")
     try:
-        from ultralytics import YOLO
+        from ultralytics import YOLO  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         raise RuntimeError("Install Ultralytics from requirements.txt before ONNX export") from exc
 
@@ -49,11 +50,16 @@ def main() -> int:
         final_path = ensure_parent(args.output)
         if final_path != exported:
             exported.replace(final_path)
-    print(f"ONNX export: {final_path}")
-    print(f"Size: {final_path.stat().st_size / (1024 * 1024):.2f} MiB")
+    info = validate_onnx_artifact(final_path)
+    print(f"ONNX export: {info.path}")
+    print(f"Size: {info.size_bytes / (1024 * 1024):.2f} MiB")
+    print(f"Opset: {info.opset}")
+    print(f"Inputs: {info.inputs}")
+    print(f"Outputs: {info.outputs}")
+    class_count = info.class_count if info.class_count is not None else "metadata unavailable"
+    print(f"Classes: {class_count}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

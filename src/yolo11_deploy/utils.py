@@ -46,6 +46,8 @@ def load_bgr_image(source: str | Path | np.ndarray) -> np.ndarray:
             raise ValueError(f"OpenCV could not decode image: {path.resolve()}")
     if image.ndim != 3 or image.shape[2] != 3:
         raise ValueError(f"Expected an HxWx3 BGR image, got shape {image.shape}")
+    if image.dtype != np.uint8:
+        raise ValueError(f"Expected uint8 BGR image values in [0, 255], got {image.dtype}")
     return np.ascontiguousarray(image)
 
 
@@ -57,4 +59,3 @@ def normalize_names(names: Any, class_count: int | None = None) -> dict[int, str
         return {index: str(value) for index, value in enumerate(names)}
     count = class_count or 0
     return {index: f"class_{index}" for index in range(count)}
-

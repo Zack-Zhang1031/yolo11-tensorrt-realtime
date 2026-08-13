@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import time
 
 import cv2
 
 from yolo11_deploy.detector import YOLODetector
 from yolo11_deploy.utils import configure_logging
-from yolo11_deploy.visualization import draw_detections
+from yolo11_deploy.video import process_capture
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,28 +30,19 @@ def main() -> int:
         capture.release()
         print(f"Could not open camera index {args.camera}. Check camera permissions and index.")
         return 2
-    smoothed_fps = 0.0
     try:
         detector = YOLODetector(args.model, args.device, args.conf, args.iou, args.imgsz)
-        while True:
-            ok, frame = capture.read()
-            if not ok:
-                print("Camera stopped returning frames; exiting.")
-                break
-            start = time.perf_counter()
-            detections = detector.predict(frame)
-            current_fps = 1.0 / max(time.perf_counter() - start, 1e-9)
-            smoothed_fps = (
-                current_fps
-                if smoothed_fps == 0
-                else 0.9 * smoothed_fps + 0.1 * current_fps
-            )
-            cv2.imshow("YOLO11 Camera Detection", draw_detections(frame, detections, smoothed_fps))
-            if cv2.waitKey(1) & 0xFF in {27, ord("q"), ord("Q")}:
-                break
-    finally:
-        capture.release()
+        process_capture(
+            capture,
+            detector,
+            window_name="YOLO11 Camera Detection",
+            camera=True,
+        )
+    except Exception:
+        if capture.isOpened():
+            capture.release()
         cv2.destroyAllWindows()
+        raise
     return 0
 
 

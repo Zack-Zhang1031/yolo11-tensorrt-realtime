@@ -1,5 +1,4 @@
 # Install the TensorRT package matching your NVIDIA CUDA/TensorRT environment.
 # NVIDIA's supported installation path is documented in docs/deployment.md.
-tensorrt>=10.0
+tensorrt>=10.0,<11
 cuda-python>=12.0
-

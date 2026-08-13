@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("outputs/onnx-detection.jpg"))
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    parser.add_argument("--device-id", type=int, default=0)
     parser.add_argument("--imgsz", type=int, default=640, help="Fallback size for dynamic ONNX")
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--iou", type=float, default=0.45)
@@ -29,7 +30,14 @@ def main() -> int:
     args = parse_args()
     configure_logging()
     image = load_bgr_image(args.source)
-    detector = ONNXDetector(args.model, args.conf, args.iou, args.device, image_size=args.imgsz)
+    detector = ONNXDetector(
+        args.model,
+        args.conf,
+        args.iou,
+        args.device,
+        image_size=args.imgsz,
+        device_id=args.device_id,
+    )
     detections = detector.predict(image)
     output = ensure_parent(args.output)
     if not cv2.imwrite(str(output), draw_detections(image, detections)):

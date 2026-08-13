@@ -5,10 +5,11 @@
 - YOLO11s PyTorch inference adapter
 - Image, video, and webcam command-line applications
 - Static and dynamic ONNX export
+- ONNX graph checking and strict/automatic provider modes
 - ONNX Runtime CPU/CUDA provider selection
-- TensorRT 10.x FP16 engine generation and inference runtime
+- TensorRT 10.x FP16 engine generation, dynamic shapes, and pinned-memory inference
 - Synchronized backend benchmarks
-- Automated unit and smoke tests
+- Python 3.10-3.13 CI, static analysis, unit tests, and hardware integration test entry point
 
 ## Engineering Guardrails
 

@@ -10,4 +10,3 @@ __all__ = [
     "YOLODetector",
     "run_benchmark",
 ]
-

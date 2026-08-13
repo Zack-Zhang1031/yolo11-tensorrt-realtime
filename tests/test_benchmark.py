@@ -27,3 +27,7 @@ def test_benchmark_config_rejects_no_measurements() -> None:
     with pytest.raises(ValueError, match="runs"):
         BenchmarkConfig("Test", "FP32", runs=0)
 
+
+def test_benchmark_config_accepts_rectangular_input() -> None:
+    config = BenchmarkConfig("Test", "FP32", input_size=(384, 672))
+    assert config.input_size == (384, 672)

@@ -1,0 +1,12 @@
+# Exact Python 3.13 Windows development baseline.
+# Platform-specific PyTorch wheels may append a local CUDA suffix.
+numpy==2.4.4
+opencv-python==5.0.0.93
+torch==2.9.1
+torchvision==0.24.1
+ultralytics==8.4.118
+onnx==1.22.0
+onnxruntime==1.20.1
+pytest==8.3.4
+pyright==1.1.411
+ruff==0.16.2

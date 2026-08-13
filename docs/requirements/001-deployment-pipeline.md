@@ -21,7 +21,7 @@ inference entry points and synchronized performance measurement.
 
 ## Non-Functional Reqs
 
-- Support Python 3.10+, Windows and Linux paths, typed modular code, and clean exceptions.
+- Support Python 3.10-3.13, Windows and Linux paths, typed modular code, and clean exceptions.
 - Keep ONNX Runtime and TensorRT behavior observable; TensorRT remains optional.
 - Do not train, download datasets, commit artifacts, or invent performance/accuracy results.
 
@@ -47,5 +47,5 @@ TensorRT validation when dependencies are available.
 
 ## Open Questions
 
-- Which CUDA/TensorRT production matrix will be the long-term supported target?
-- Should later releases support dynamic image shapes or end-to-end NMS exports?
+- Which CUDA/TensorRT 10.x production matrix will be the long-term supported target?
+- Should later releases support end-to-end NMS exports?

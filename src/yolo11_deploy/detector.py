@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 
 from .utils import load_bgr_image, normalize_names
+
+if TYPE_CHECKING:
+    from .protocols import UltralyticsModel
 
 
 class Detection(TypedDict):
@@ -30,7 +33,7 @@ class YOLODetector:
         iou: float = 0.45,
         image_size: int = 640,
         half: bool = False,
-        model: Any | None = None,
+        model: UltralyticsModel | None = None,
     ) -> None:
         if not 0.0 <= confidence <= 1.0 or not 0.0 <= iou <= 1.0:
             raise ValueError("Confidence and IoU thresholds must be within [0, 1]")
@@ -45,7 +48,7 @@ class YOLODetector:
 
         if model is None:
             try:
-                from ultralytics import YOLO
+                from ultralytics import YOLO  # pyright: ignore[reportMissingImports]
             except ImportError as exc:
                 raise RuntimeError(
                     "Ultralytics is required for PyTorch inference. Install requirements.txt."
@@ -57,7 +60,9 @@ class YOLODetector:
                     f"Could not load {model_path}. If this is the first run, verify network access "
                     "so Ultralytics can download official weights."
                 ) from exc
-        self.model = model
+        if model is None:  # Defensive guard for type checkers and custom model factories.
+            raise RuntimeError("The detector model could not be initialized")
+        self.model: UltralyticsModel = model
         self.names = normalize_names(getattr(model, "names", {}))
 
     def predict(self, source: str | Path | np.ndarray) -> list[Detection]:

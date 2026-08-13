@@ -16,13 +16,18 @@ class BenchmarkConfig:
 
     backend: str
     precision: str
-    input_size: int = 640
+    input_size: int | tuple[int, int] = 640
     batch: int = 1
     warmup: int = 50
     runs: int = 200
 
     def __post_init__(self) -> None:
-        if self.input_size <= 0 or self.batch <= 0:
+        dimensions = (
+            (self.input_size, self.input_size)
+            if isinstance(self.input_size, int)
+            else self.input_size
+        )
+        if any(dimension <= 0 for dimension in dimensions) or self.batch <= 0:
             raise ValueError("input_size and batch must be positive")
         if self.warmup < 0 or self.runs <= 0:
             raise ValueError("warmup must be non-negative and runs must be positive")
@@ -34,7 +39,7 @@ class BenchmarkResult:
 
     backend: str
     precision: str
-    input_size: int
+    input_size: int | tuple[int, int]
     batch: int
     warmup: int
     runs: int

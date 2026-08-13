@@ -28,4 +28,3 @@ def test_decode_empty_confidence_returns_empty_list() -> None:
     output = np.zeros((1, 5, 10), dtype=np.float32)
     info = LetterboxInfo((640, 640), (640, 640), 1.0, 0.0, 0.0)
     assert decode_yolo_output(output, info, {0: "object"}, confidence=0.5) == []
-

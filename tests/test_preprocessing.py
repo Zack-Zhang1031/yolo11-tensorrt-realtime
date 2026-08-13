@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from yolo11_deploy.preprocessing import letterbox, preprocess_image
+from yolo11_deploy.utils import load_bgr_image
 
 
 def test_letterbox_preserves_aspect_ratio_and_records_padding() -> None:
@@ -27,3 +28,7 @@ def test_letterbox_rejects_invalid_image() -> None:
     with pytest.raises(ValueError, match="HxWx3"):
         letterbox(np.zeros((10, 10), dtype=np.uint8))
 
+
+def test_image_loader_rejects_float_images() -> None:
+    with pytest.raises(ValueError, match="uint8"):
+        load_bgr_image(np.zeros((10, 10, 3), dtype=np.float32))

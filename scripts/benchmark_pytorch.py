@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 
 import torch
 
@@ -26,7 +27,7 @@ def main() -> int:
     configure_logging()
     if args.half and not args.device.startswith("cuda"):
         raise ValueError("PyTorch FP16 benchmark requires --device cuda:0 (or another CUDA device)")
-    from ultralytics import YOLO
+    from ultralytics import YOLO  # pyright: ignore[reportMissingImports]
 
     yolo = YOLO(args.model)
     module = yolo.model.to(args.device).eval()
@@ -34,11 +35,14 @@ def main() -> int:
     if args.half:
         module.half()
     tensor = torch.zeros((1, 3, args.imgsz, args.imgsz), dtype=dtype, device=args.device)
+    synchronize: Callable[[], None] | None
     if args.device.startswith("cuda"):
         cuda_device = torch.device(args.device)
 
-        def synchronize() -> None:
+        def synchronize_cuda() -> None:
             torch.cuda.synchronize(cuda_device)
+
+        synchronize = synchronize_cuda
 
     else:
         synchronize = None

@@ -6,33 +6,31 @@ latency benchmarking.
 
 ## Highlights
 
-- Clean backend-independent detection API
+- Backend-independent detection dictionaries
 - Image, video, and webcam inference
-- OpenCV visualization with labels, confidence scores, and FPS
-- ONNX export with artifact validation
-- ONNX Runtime inference on CPU or CUDA Execution Provider
-- TensorRT 10.x engine generation with FP16 support
-- Static and dynamic ONNX input support
-- CUDA buffer allocation, asynchronous execution, and stream synchronization
+- OpenCV labels, confidence scores, and smoothed FPS
+- ONNX graph checking and interface inspection
+- Strict or automatic ONNX Runtime CUDA provider selection
+- TensorRT 10.x static and dynamic engine generation
+- Pinned host buffers, CUDA device buffers, asynchronous execution, and stream synchronization
 - Class-aware NMS and source-coordinate box projection
 - Synchronized PyTorch, ONNX Runtime, and TensorRT benchmarks
-- Modular `src` layout with type hints, tests, and command-line tools
+- Typed `src` layout, Python 3.10-3.13 CI, and hardware integration test entry point
 
 ## Deployment Pipeline
 
 ```mermaid
 flowchart LR
-    A["YOLO11s<br/>PyTorch"] --> B["ONNX Export"]
+    A["YOLO11s PyTorch"] --> B["ONNX Export and Check"]
     B --> C["ONNX Runtime"]
-    B --> D["TensorRT FP16 Engine"]
+    B --> D["TensorRT 10.x Engine"]
     C --> E["Image / Video / Webcam"]
     D --> E
 ```
 
 ## Detection Contract
 
-All inference backends return plain Python dictionaries instead of exposing framework-specific
-result objects:
+All inference backends return plain Python dictionaries:
 
 ```python
 [
@@ -45,42 +43,39 @@ result objects:
 ]
 ```
 
-This keeps application code independent from Ultralytics, ONNX Runtime, and TensorRT internals.
-
 ## Project Structure
 
 ```text
 yolo11-tensorrt-realtime/
-├── configs/                    # RPS and pothole dataset configurations
-├── src/yolo11_deploy/
-│   ├── detector.py             # Ultralytics adapter and detection contract
-│   ├── preprocessing.py        # Letterbox and NCHW preprocessing
-│   ├── postprocessing.py       # Output decoding, NMS, and box projection
-│   ├── onnx_runtime.py         # ONNX Runtime backend
-│   ├── tensorrt_runtime.py     # TensorRT 10.x runtime and CUDA buffers
-│   ├── benchmark.py            # Shared latency statistics
-│   └── visualization.py        # OpenCV rendering
-├── scripts/                    # Detection, export, build, and benchmark CLIs
-├── tests/                      # Unit tests
-├── docs/                       # Deployment and benchmark documentation
-├── requirements.txt
-└── requirements-tensorrt.txt
+|-- configs/                         # Dataset configurations
+|-- src/yolo11_deploy/
+|   |-- detector.py                  # Ultralytics adapter
+|   |-- engine_builder.py            # TensorRT engine construction
+|   |-- onnx_runtime.py              # ONNX Runtime backend
+|   |-- onnx_validation.py           # ONNX graph validation
+|   |-- preprocessing.py             # Letterbox and NCHW preprocessing
+|   |-- postprocessing.py            # Decoding, NMS, and box projection
+|   |-- protocols.py                 # Backend structural interfaces
+|   |-- tensorrt_runtime.py          # TensorRT runtime and CUDA buffers
+|   `-- video.py                     # Shared video and camera loop
+|-- scripts/                         # Detection, export, build, and benchmark CLIs
+|-- tests/                           # Unit and hardware integration tests
+|-- docs/                            # Architecture and operating guides
+|-- constraints.txt                  # Pinned development dependency set
+|-- requirements.txt                 # CPU-oriented environment
+`-- requirements-tensorrt.txt        # NVIDIA runtime environment
 ```
 
 ## Requirements
 
-- Python 3.10+
-- PyTorch
-- Ultralytics
-- OpenCV
-- NumPy
-- ONNX
-- ONNX Runtime
+- Python 3.10 through 3.13
+- PyTorch, Ultralytics, OpenCV, NumPy, and ONNX
+- One ONNX Runtime distribution for ONNX inference
 - NVIDIA CUDA and TensorRT 10.x for the TensorRT backend
 
 ## Installation
 
-### Core Environment
+### Development Environment
 
 Windows PowerShell:
 
@@ -100,106 +95,79 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
+`constraints.txt` records the exact dependency baseline for the environment that produced the
+current validation evidence. Apply it when checking that same Python and platform combination.
+
+For an application environment, select exactly one ONNX Runtime extra:
+
+```powershell
+# CPU
+python -m pip install -e ".[onnx-cpu]"
+
+# NVIDIA CUDA Execution Provider
+python -m pip install -e ".[onnx-gpu]"
+```
+
 ### TensorRT Environment
 
-Install the NVIDIA driver, CUDA, and TensorRT version appropriate for the target machine, then
-install the Python runtime dependencies:
+Install a compatible NVIDIA driver, CUDA environment, and TensorRT 10.x release, then run:
 
 ```powershell
 python -m pip install -r requirements-tensorrt.txt
 ```
 
-See [docs/deployment.md](docs/deployment.md) for environment checks and deployment guidance.
+See [Deployment Guide](docs/deployment.md) for environment checks and compatibility guidance.
 
 ## Quick Start
 
-Ultralytics downloads the official `yolo11s.pt` weight on first use when the file is not available
+Ultralytics downloads the official `yolo11s.pt` weight on first use when it is not available
 locally. Model artifacts are excluded from Git.
 
 ```powershell
 python scripts/smoke_test.py
 ```
 
-## Image Detection
+## Image, Video, and Camera
 
 ```powershell
-python scripts/detect_image.py `
-  --model yolo11s.pt `
-  --source assets/demo.jpg `
-  --device cuda:0 `
-  --output outputs/detection.jpg
-```
-
-## Video Detection
-
-```powershell
-python scripts/detect_video.py `
-  --model yolo11s.pt `
-  --source video.mp4 `
-  --device cuda:0 `
-  --save outputs/detected-video.mp4
-```
-
-Supported containers are MP4, AVI, and MOV. Press `Esc` or `Q` to close the preview. Use
-`--no-display` for headless processing.
-
-## Webcam Detection
-
-```powershell
+python scripts/detect_image.py --model yolo11s.pt --source assets/demo.jpg --device cuda:0 --output outputs/detection.jpg
+python scripts/detect_video.py --model yolo11s.pt --source video.mp4 --device cuda:0 --save outputs/detected-video.mp4
 python scripts/detect_camera.py --model yolo11s.pt --camera 0 --device cuda:0
 ```
 
-The camera is released cleanly on exit, stream failure, or model initialization failure.
+Video output supports MP4, AVI, and MOV with an extension-matched codec. Press `Esc` or `Q` to
+close the preview. Use `--no-display` for headless video processing. Capture and writer resources
+are released on normal exit and exceptions; saving zero frames is reported as an error.
 
 ## Export ONNX
 
-Static FP32 model:
-
 ```powershell
-python scripts/export_onnx.py `
-  --model yolo11s.pt `
-  --imgsz 640 `
-  --output weights/yolo11s.onnx
+python scripts/export_onnx.py --model yolo11s.pt --imgsz 640 --output weights/yolo11s.onnx
+python scripts/export_onnx.py --model yolo11s.pt --imgsz 640 --dynamic --output weights/yolo11s-dynamic.onnx
 ```
 
-Dynamic model:
-
-```powershell
-python scripts/export_onnx.py `
-  --model yolo11s.pt `
-  --imgsz 640 `
-  --dynamic `
-  --output weights/yolo11s-dynamic.onnx
-```
-
-The exporter verifies that the output file exists and contains data.
+The exporter runs `onnx.checker.check_model`, reports graph inputs and outputs, and records opset and
+class metadata before accepting the artifact.
 
 ## ONNX Runtime Inference
 
 ```powershell
-python scripts/infer_onnx.py `
-  --model weights/yolo11s.onnx `
-  --source assets/demo.jpg `
-  --device auto `
-  --imgsz 640
+python scripts/infer_onnx.py --model weights/yolo11s.onnx --source assets/demo.jpg --device auto --imgsz 640
 ```
 
-`--device auto` selects CUDA Execution Provider when available and falls back to CPU Execution
-Provider. `--imgsz` supplies the runtime dimensions for a dynamic ONNX model.
+`--device auto` prefers CUDA Execution Provider and permits CPU fallback. `--device cuda` is strict:
+startup fails if CUDA is unavailable or cannot become the active provider. `--device-id` selects the
+GPU, and `--imgsz` supplies dimensions for a dynamic ONNX model.
 
 ## Build a TensorRT Engine
 
 Static FP16 engine:
 
 ```powershell
-python scripts/build_tensorrt.py `
-  --onnx weights/yolo11s.onnx `
-  --engine weights/yolo11s-fp16.engine `
-  --fp16 `
-  --workspace 4
+python scripts/build_tensorrt.py --onnx weights/yolo11s.onnx --engine weights/yolo11s-fp16.engine --fp16 --workspace 4
 ```
 
-Dynamic ONNX models use an optimization profile:
+Dynamic optimization profile:
 
 ```powershell
 python scripts/build_tensorrt.py `
@@ -211,50 +179,51 @@ python scripts/build_tensorrt.py `
   --max-imgsz 1280
 ```
 
-The builder validates TensorRT and CUDA availability, parses ONNX errors, configures workspace and
-optimization profiles, writes the serialized engine, and preserves class-name metadata in a JSON
-sidecar.
+The builder validates TensorRT and CUDA availability, reports ONNX parser errors, configures the
+workspace and optimization profile, and preserves class-name metadata in a JSON sidecar.
 
 ## TensorRT Inference
 
 ```powershell
 python scripts/infer_tensorrt.py `
-  --engine weights/yolo11s-fp16.engine `
+  --engine weights/yolo11s-dynamic-fp16.engine `
   --source assets/demo.jpg `
+  --imgsz 640 `
   --output outputs/tensorrt-detection.jpg
 ```
 
-The runtime uses TensorRT named tensors and `execute_async_v3`, reusable host/device buffers, CUDA
-stream synchronization, YOLO output decoding, NMS, and coordinate projection.
+For a dynamic engine, `--imgsz` must fall within its build profile. The runtime resolves shapes and
+reallocates all I/O buffers. Deserialize only engine files built or supplied by a trusted source.
 
 ## Benchmarking
 
 The benchmark utilities report mean latency, median/P50, P95, and FPS. GPU timings synchronize the
-corresponding CUDA device or stream before the elapsed time is recorded. Backend-specific timing
-boundaries are documented in [docs/benchmark.md](docs/benchmark.md).
-
-Recommended benchmark settings:
-
-- Input: 640 x 640
-- Batch size: 1
-- Warmup: 50 calls
-- Measured runs: 200
+corresponding CUDA device or stream. See [Benchmark Methodology](docs/benchmark.md) for timing
+boundaries.
 
 ```powershell
-python scripts/benchmark_pytorch.py --model yolo11s.pt --device cuda:0 --imgsz 640 --warmup 50 --runs 200
 python scripts/benchmark_pytorch.py --model yolo11s.pt --device cuda:0 --imgsz 640 --half --warmup 50 --runs 200
 python scripts/benchmark_onnx.py --model weights/yolo11s.onnx --device auto --imgsz 640 --warmup 50 --runs 200
-python scripts/benchmark_tensorrt.py --engine weights/yolo11s-fp16.engine --warmup 50 --runs 200
+python scripts/benchmark_tensorrt.py --engine weights/yolo11s-fp16.engine --imgsz 640 --warmup 50 --runs 200
 ```
-
-See [docs/benchmark.md](docs/benchmark.md) for measurement boundaries and reporting guidance.
 
 ## Validation
 
 ```powershell
 python -m compileall src scripts tests
-pytest -q
-python scripts/smoke_test.py
+python -m ruff check src scripts tests
+python -m pyright
+python -m pytest -q
+python scripts/smoke_test.py --offline
+```
+
+CI runs the CPU-safe gate on Python 3.10, 3.11, 3.12, and 3.13. On an NVIDIA TensorRT 10.x runner,
+enable engine build and inference validation with:
+
+```powershell
+$env:YOLO_TRT_INTEGRATION = "1"
+$env:YOLO_TRT_ONNX = "weights/yolo11s.onnx"
+python -m pytest -q -m tensorrt
 ```
 
 ## Supported Model Output

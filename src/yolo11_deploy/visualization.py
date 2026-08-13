@@ -19,10 +19,8 @@ def draw_detections(
         x1, y1, x2, y2 = (round(value) for value in detection["bbox"])
         color = _class_color(detection["class_id"])
         cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
-        label = f'{detection["class_name"]} {detection["confidence"]:.2f}'
-        (width, height), baseline = cv2.getTextSize(
-            label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1
-        )
+        label = f"{detection['class_name']} {detection['confidence']:.2f}"
+        (width, height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
         label_top = max(0, y1 - height - baseline - 6)
         cv2.rectangle(canvas, (x1, label_top), (x1 + width + 6, y1), color, -1)
         cv2.putText(
@@ -51,4 +49,3 @@ def draw_detections(
 
 def _class_color(class_id: int) -> tuple[int, int, int]:
     return ((37 * class_id + 80) % 255, (17 * class_id + 160) % 255, (29 * class_id + 220) % 255)
-

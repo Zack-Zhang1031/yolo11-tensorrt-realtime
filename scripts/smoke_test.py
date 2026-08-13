@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import sys
 from collections.abc import Callable
@@ -25,6 +26,9 @@ def check(label: str, operation: Callable[[], object]) -> bool:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--offline", action="store_true", help="Skip weight download and inference")
+    args = parser.parse_args()
     failures = 0
     try:
         import yolo11_deploy
@@ -41,13 +45,15 @@ def main() -> int:
 
     try:
         import torch
+
         report("PASS", "torch available", torch.__version__)
     except ImportError as exc:
         report("FAIL", "torch available", str(exc))
         return 1
 
     try:
-        import ultralytics
+        import ultralytics  # pyright: ignore[reportMissingImports]
+
         report("PASS", "ultralytics import", ultralytics.__version__)
     except ImportError as exc:
         report("FAIL", "ultralytics import", str(exc))
@@ -69,12 +75,20 @@ def main() -> int:
         nonlocal detector
         detector = YOLODetector("yolo11s.pt", device="cpu", image_size=640)
 
-    loaded = check("YOLO11s model build/load", load_model)
-    failures += not loaded
-    if loaded and detector is not None:
-        failures += not check("PyTorch inference pipeline", lambda: detector.predict(synthetic))
+    loaded = False
+    if args.offline:
+        report("SKIP", "YOLO11s model build/load", "offline mode")
+        report("SKIP", "PyTorch inference pipeline", "offline mode")
     else:
-        report("SKIP", "PyTorch inference pipeline", "model load failed")
+        loaded = check("YOLO11s model build/load", load_model)
+        failures += not loaded
+        if loaded and detector is not None:
+            active_detector = detector
+            failures += not check(
+                "PyTorch inference pipeline", lambda: active_detector.predict(synthetic)
+            )
+        else:
+            report("SKIP", "PyTorch inference pipeline", "model load failed")
 
     def run_postprocessing() -> None:
         from yolo11_deploy.preprocessing import LetterboxInfo
@@ -98,6 +112,7 @@ def main() -> int:
 
     if importlib.util.find_spec("onnxruntime"):
         import onnxruntime as ort
+
         report("PASS", "ONNX Runtime availability", ", ".join(ort.get_available_providers()))
     else:
         report("SKIP", "ONNX Runtime availability", "optional dependency not installed")
@@ -108,7 +123,8 @@ def main() -> int:
         report("SKIP", "CUDA", "no CUDA device visible to PyTorch")
 
     if importlib.util.find_spec("tensorrt"):
-        import tensorrt as trt
+        import tensorrt as trt  # pyright: ignore[reportMissingImports]
+
         report("PASS", "TensorRT", trt.__version__)
     else:
         report("SKIP", "TensorRT optional dependency", "not installed")

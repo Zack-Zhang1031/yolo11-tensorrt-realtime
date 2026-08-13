@@ -85,9 +85,7 @@ def decode_yolo_output(
         xywh = boxes[indices].copy()
         xywh[:, 2] -= xywh[:, 0]
         xywh[:, 3] -= xywh[:, 1]
-        kept = cv2.dnn.NMSBoxes(
-            xywh.tolist(), confidences[indices].tolist(), confidence, iou
-        )
+        kept = cv2.dnn.NMSBoxes(xywh.tolist(), confidences[indices].tolist(), confidence, iou)
         if len(kept):
             selected.extend(indices[np.asarray(kept).reshape(-1)].tolist())
 
@@ -102,4 +100,3 @@ def decode_yolo_output(
         }
         for index in selected
     ]
-
