@@ -1,0 +1,9 @@
+# Example dataset configuration. Dataset files are not included.
+path: ./datasets/pothole
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: pothole
+

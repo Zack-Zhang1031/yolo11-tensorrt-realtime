@@ -1,0 +1,11 @@
+# Example dataset configuration. Dataset files are not included.
+path: ./datasets/rps
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: rock
+  1: paper
+  2: scissors
+

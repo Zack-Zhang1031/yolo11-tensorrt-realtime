@@ -1,0 +1,8 @@
+numpy>=1.26,<3
+opencv-python>=4.9
+torch>=2.2
+ultralytics>=8.3.0
+onnx>=1.16
+onnxruntime>=1.18
+pytest>=8.0
+
