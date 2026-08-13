@@ -10,7 +10,6 @@ from typing import Any
 import cv2
 import numpy as np
 
-
 LOGGER = logging.getLogger("yolo11_deploy")
 
 

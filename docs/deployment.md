@@ -29,7 +29,6 @@ does not automatically install or change the system CUDA toolkit.
 
 - A missing weight may require first-run internet access or a local `--model` path.
 - A missing CUDA Execution Provider is not an ONNX CPU failure.
-- A missing TensorRT install is `SKIP`, not a test failure.
+- The core package and CPU validation remain available without a TensorRT installation.
 - An ONNX parser error should be resolved at export/model compatibility, not hidden.
 - FP16 build fails explicitly if the platform does not report fast FP16 support.
-

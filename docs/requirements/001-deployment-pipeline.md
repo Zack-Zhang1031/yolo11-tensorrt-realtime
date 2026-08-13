@@ -2,14 +2,14 @@
 
 ## Overview
 
-Provide a complete, reproducible YOLO11s PyTorch-to-ONNX-to-TensorRT FP16 deployment codebase
-without model training, large datasets, or fabricated metrics.
+Provide a complete YOLO11s PyTorch-to-ONNX-to-TensorRT FP16 deployment codebase with real-time
+inference entry points and synchronized performance measurement.
 
 ## User Stories
 
 - As a CV engineer, I can run image, video, and webcam inference through a stable result contract.
 - As a deployment engineer, I can export ONNX and build/run TensorRT when optional dependencies exist.
-- As a reviewer, I can reproduce synchronized benchmark measurements and distinguish historical data.
+- As a reviewer, I can run synchronized benchmark measurements under documented conditions.
 
 ## Functional Reqs
 
@@ -49,4 +49,3 @@ TensorRT validation when dependencies are available.
 
 - Which CUDA/TensorRT production matrix will be the long-term supported target?
 - Should later releases support dynamic image shapes or end-to-end NMS exports?
-

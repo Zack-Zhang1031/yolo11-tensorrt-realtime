@@ -38,7 +38,12 @@ def test_detector_returns_plain_detection_contract() -> None:
     detector = YOLODetector(model=model, confidence=0.3, iou=0.4, image_size=320)
     detections = detector.predict(np.zeros((64, 64, 3), dtype=np.uint8))
     assert detections == [
-        {"class_id": 0, "class_name": "object", "confidence": pytest.approx(0.75), "bbox": [1, 2, 30, 40]}
+        {
+            "class_id": 0,
+            "class_name": "object",
+            "confidence": pytest.approx(0.75),
+            "bbox": [1, 2, 30, 40],
+        }
     ]
     assert model.calls[0]["conf"] == 0.3
     assert model.calls[0]["imgsz"] == 320

@@ -16,6 +16,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    parser.add_argument("--imgsz", type=int, default=640, help="Fallback size for dynamic ONNX")
     parser.add_argument("--runs", type=int, default=200)
     parser.add_argument("--warmup", type=int, default=50)
     return parser.parse_args()
@@ -24,7 +25,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     configure_logging()
-    detector = ONNXDetector(args.model, device=args.device)
+    detector = ONNXDetector(args.model, device=args.device, image_size=args.imgsz)
     height, width = detector.input_size
     dtype = np.float16 if detector.input.type == "tensor(float16)" else np.float32
     tensor = np.zeros((1, 3, height, width), dtype=dtype)

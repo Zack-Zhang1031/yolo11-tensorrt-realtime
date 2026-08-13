@@ -8,9 +8,12 @@
 - Measured runs: 200
 - Statistics: arithmetic mean, median/P50, P95, and FPS
 
-The benchmark scripts measure raw model/backend inference. Image decode, letterbox preprocessing,
-NMS, drawing, display, and video encoding are excluded. State that distinction beside published
-numbers.
+The benchmark scripts exclude image decode, letterbox preprocessing, NMS, drawing, display, and
+video encoding. PyTorch measures a forward pass with an input already resident on the selected
+device. ONNX Runtime measures one session call. TensorRT measures host-to-device copy, engine
+execution, and device-to-host output copy on its CUDA stream. State these boundaries beside
+published numbers; the three values are useful backend measurements, not perfectly identical
+microbenchmarks.
 
 ## Synchronization
 
@@ -21,7 +24,5 @@ this script.
 
 ## Reporting
 
-Only report measurements emitted by an executed command, with hardware and software context.
-Unavailable backends are `N/A` or `SKIP`. Historical values in the README are clearly separated
-from measurements reproduced in the current checkout.
-
+Publish measurements together with the hardware, software versions, precision, input size, batch
+size, warmup count, run count, and timing boundary. This makes results comparable and auditable.

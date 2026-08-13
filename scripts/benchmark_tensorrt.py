@@ -28,8 +28,12 @@ def main() -> int:
         result = run_benchmark(
             lambda: detector.infer_raw(tensor),
             BenchmarkConfig(
-                "TensorRT", "FP16" if detector.input_dtype == np.float16 else str(detector.input_dtype),
-                detector.input_shape[-1], 1, args.warmup, args.runs
+                "TensorRT",
+                "FP16" if detector.input_dtype == np.float16 else str(detector.input_dtype),
+                detector.input_shape[-1],
+                1,
+                args.warmup,
+                args.runs,
             ),
             detector.synchronize,
         )
@@ -39,4 +43,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -15,7 +15,6 @@ from .postprocessing import decode_yolo_output
 from .preprocessing import preprocess_image
 from .utils import load_bgr_image, normalize_names
 
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -43,6 +42,15 @@ def _check_cuda(result: tuple[Any, ...] | Any, operation: str) -> Any:
     return values[1] if len(values) == 2 else values[1:]
 
 
+def require_cuda_device() -> tuple[Any, int]:
+    """Load the CUDA runtime and require at least one visible CUDA device."""
+    cudart = _load_cuda_runtime()
+    device_count = int(_check_cuda(cudart.cudaGetDeviceCount(), "cudaGetDeviceCount"))
+    if device_count < 1:
+        raise RuntimeError("TensorRT requires at least one visible NVIDIA CUDA device.")
+    return cudart, device_count
+
+
 class TensorRTDetector:
     """TensorRT 10.x inference runner for static-batch YOLO11 engines."""
 
@@ -67,10 +75,10 @@ class TensorRTDetector:
         if not path.is_file() or path.stat().st_size == 0:
             raise FileNotFoundError(f"Non-empty TensorRT engine not found: {path}")
         self.trt = trt
-        self.cudart = _load_cuda_runtime()
+        self.cudart, _ = require_cuda_device()
         self.logger = trt.Logger(trt.Logger.WARNING)
-        runtime = trt.Runtime(self.logger)
-        self.engine = runtime.deserialize_cuda_engine(path.read_bytes())
+        self.runtime = trt.Runtime(self.logger)
+        self.engine = self.runtime.deserialize_cuda_engine(path.read_bytes())
         if self.engine is None:
             raise RuntimeError(f"TensorRT could not deserialize engine: {path}")
         self.context = self.engine.create_execution_context()
@@ -79,7 +87,9 @@ class TensorRTDetector:
         self.stream = _check_cuda(self.cudart.cudaStreamCreate(), "cudaStreamCreate")
         self.device_buffers: dict[str, int] = {}
         self.host_outputs: dict[str, np.ndarray] = {}
-        self.tensor_names = [self.engine.get_tensor_name(i) for i in range(self.engine.num_io_tensors)]
+        self.tensor_names = [
+            self.engine.get_tensor_name(index) for index in range(self.engine.num_io_tensors)
+        ]
         self.input_names = [
             name
             for name in self.tensor_names
@@ -97,7 +107,7 @@ class TensorRTDetector:
 
     @staticmethod
     def _sidecar_names(engine_path: Path) -> object:
-        metadata_path = engine_path.with_suffix(".json")
+        metadata_path = engine_path.with_suffix(f"{engine_path.suffix}.json")
         if not metadata_path.is_file():
             return {}
         try:
@@ -109,15 +119,16 @@ class TensorRTDetector:
             return {}
 
     def _allocate(self) -> None:
+        input_shape = tuple(self.context.get_tensor_shape(self.input_name))
+        if any(dimension < 0 for dimension in input_shape):
+            profile_shape = tuple(self.engine.get_tensor_profile_shape(self.input_name, 0)[1])
+            if not self.context.set_input_shape(self.input_name, profile_shape):
+                raise RuntimeError(
+                    f"TensorRT rejected optimization-profile input shape {profile_shape}"
+                )
+
         for name in self.tensor_names:
             shape = tuple(self.context.get_tensor_shape(name))
-            if any(dimension < 0 for dimension in shape):
-                if name == self.input_name:
-                    profile_shape = self.engine.get_tensor_profile_shape(name, 0)[1]
-                    self.context.set_input_shape(name, profile_shape)
-                    shape = tuple(profile_shape)
-                else:
-                    shape = tuple(self.context.get_tensor_shape(name))
             if any(dimension < 0 for dimension in shape):
                 raise RuntimeError(f"Unresolved dynamic TensorRT shape for {name}: {shape}")
             dtype = np.dtype(self.trt.nptype(self.engine.get_tensor_dtype(name)))
@@ -192,9 +203,13 @@ class TensorRTDetector:
             _check_cuda(self.cudart.cudaFree(device), "cudaFree")
         _check_cuda(self.cudart.cudaStreamDestroy(self.stream), "cudaStreamDestroy")
         self.device_buffers.clear()
+        self.host_outputs.clear()
+        self.context = None
+        self.engine = None
+        self.runtime = None
         self._closed = True
 
-    def __enter__(self) -> "TensorRTDetector":
+    def __enter__(self) -> TensorRTDetector:
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -206,4 +221,3 @@ class TensorRTDetector:
                 self.close()
             except Exception:
                 pass
-

@@ -12,6 +12,7 @@ dist/
 *.pth
 *.onnx
 *.engine
+*.engine.json
 *.plan
 weights/
 runs/
@@ -22,4 +23,3 @@ outputs/
 .vscode/
 .DS_Store
 Thumbs.db
-

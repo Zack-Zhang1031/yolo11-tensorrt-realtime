@@ -32,6 +32,8 @@ def main() -> int:
         from yolo11_deploy.detector import YOLODetector
         from yolo11_deploy.postprocessing import decode_yolo_output
         from yolo11_deploy.preprocessing import preprocess_image
+
+        assert yolo11_deploy.__name__ == "yolo11_deploy"
     except Exception as exc:
         report("FAIL", "package import", f"{type(exc).__name__}: {exc}")
         return 1
@@ -120,4 +122,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

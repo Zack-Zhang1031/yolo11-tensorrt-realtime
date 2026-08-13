@@ -34,7 +34,14 @@ def main() -> int:
     if args.half:
         module.half()
     tensor = torch.zeros((1, 3, args.imgsz, args.imgsz), dtype=dtype, device=args.device)
-    synchronize = torch.cuda.synchronize if args.device.startswith("cuda") else None
+    if args.device.startswith("cuda"):
+        cuda_device = torch.device(args.device)
+
+        def synchronize() -> None:
+            torch.cuda.synchronize(cuda_device)
+
+    else:
+        synchronize = None
     config = BenchmarkConfig(
         backend="PyTorch",
         precision="FP16" if args.half else "FP32",
@@ -50,4 +57,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

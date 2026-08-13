@@ -63,12 +63,12 @@ def letterbox(
 def preprocess_image(
     image: np.ndarray,
     size: int | tuple[int, int] = 640,
-    dtype: np.dtype = np.dtype(np.float32),
+    dtype: np.dtype | None = None,
 ) -> tuple[np.ndarray, LetterboxInfo]:
     """Convert BGR HWC uint8 input to normalized RGB NCHW tensor."""
+    dtype = dtype or np.dtype(np.float32)
     padded, info = letterbox(image, size)
     rgb = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB)
     tensor = rgb.transpose(2, 0, 1)[None]
     tensor = np.ascontiguousarray(tensor, dtype=dtype) / np.array(255.0, dtype=dtype)
     return tensor, info
-

@@ -31,9 +31,9 @@ def main() -> int:
         capture.release()
         print(f"Could not open camera index {args.camera}. Check camera permissions and index.")
         return 2
-    detector = YOLODetector(args.model, args.device, args.conf, args.iou, args.imgsz)
     smoothed_fps = 0.0
     try:
+        detector = YOLODetector(args.model, args.device, args.conf, args.iou, args.imgsz)
         while True:
             ok, frame = capture.read()
             if not ok:
@@ -42,7 +42,11 @@ def main() -> int:
             start = time.perf_counter()
             detections = detector.predict(frame)
             current_fps = 1.0 / max(time.perf_counter() - start, 1e-9)
-            smoothed_fps = current_fps if smoothed_fps == 0 else 0.9 * smoothed_fps + 0.1 * current_fps
+            smoothed_fps = (
+                current_fps
+                if smoothed_fps == 0
+                else 0.9 * smoothed_fps + 0.1 * current_fps
+            )
             cv2.imshow("YOLO11 Camera Detection", draw_detections(frame, detections, smoothed_fps))
             if cv2.waitKey(1) & 0xFF in {27, ord("q"), ord("Q")}:
                 break
@@ -54,4 +58,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -13,7 +13,6 @@ from .postprocessing import decode_yolo_output
 from .preprocessing import preprocess_image
 from .utils import load_bgr_image, normalize_names
 
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -27,6 +26,7 @@ class ONNXDetector:
         iou: float = 0.45,
         device: str = "auto",
         class_names: dict[int, str] | list[str] | None = None,
+        image_size: int | tuple[int, int] = 640,
     ) -> None:
         try:
             import onnxruntime as ort
@@ -48,12 +48,14 @@ class ONNXDetector:
         )
         self.session = ort.InferenceSession(str(path), providers=providers)
         self.input = self.session.get_inputs()[0]
+        if self.input.type not in {"tensor(float)", "tensor(float16)"}:
+            raise ValueError(f"Unsupported ONNX input type: {self.input.type}")
         self.output_names = [output.name for output in self.session.get_outputs()]
         self.confidence = confidence
         self.iou = iou
         self.providers = self.session.get_providers()
         self.names = normalize_names(class_names or self._metadata_names())
-        self.input_size = self._input_size()
+        self.input_size = self._input_size(image_size)
         LOGGER.info("ONNX Runtime providers: %s", self.providers)
 
     def _metadata_names(self) -> object:
@@ -66,14 +68,19 @@ class ONNXDetector:
             LOGGER.warning("Could not parse class names from ONNX metadata")
             return {}
 
-    def _input_size(self) -> tuple[int, int]:
+    def _input_size(self, fallback: int | tuple[int, int]) -> tuple[int, int]:
         shape = self.input.shape
         if len(shape) != 4:
             raise ValueError(f"Expected NCHW ONNX input, got {shape}")
         height, width = shape[-2:]
-        if not isinstance(height, int) or not isinstance(width, int):
-            raise ValueError("Dynamic ONNX image dimensions require an explicit profile and are unsupported")
-        return height, width
+        fallback_height, fallback_width = (
+            (fallback, fallback) if isinstance(fallback, int) else fallback
+        )
+        resolved_height = height if isinstance(height, int) and height > 0 else fallback_height
+        resolved_width = width if isinstance(width, int) and width > 0 else fallback_width
+        if resolved_height <= 0 or resolved_width <= 0:
+            raise ValueError("ONNX inference dimensions must be positive")
+        return resolved_height, resolved_width
 
     def prepare(self, source: str | Path | np.ndarray) -> tuple[np.ndarray, object]:
         """Prepare one source image for inference."""
@@ -94,4 +101,3 @@ class ONNXDetector:
             channels = min(output.shape[-2:])
             self.names = normalize_names(None, max(0, channels - 4))
         return decode_yolo_output(outputs, info, self.names, self.confidence, self.iou)
-

@@ -35,9 +35,9 @@ def main() -> int:
     if not capture.isOpened():
         print(f"Could not open video: {args.source.resolve()}")
         return 2
-    detector = YOLODetector(args.model, args.device, args.conf, args.iou, args.imgsz)
     writer = None
     try:
+        detector = YOLODetector(args.model, args.device, args.conf, args.iou, args.imgsz)
         if args.save:
             output = ensure_parent(args.save)
             width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -56,7 +56,11 @@ def main() -> int:
             start = time.perf_counter()
             detections = detector.predict(frame)
             current_fps = 1.0 / max(time.perf_counter() - start, 1e-9)
-            smoothed_fps = current_fps if smoothed_fps == 0 else 0.9 * smoothed_fps + 0.1 * current_fps
+            smoothed_fps = (
+                current_fps
+                if smoothed_fps == 0
+                else 0.9 * smoothed_fps + 0.1 * current_fps
+            )
             annotated = draw_detections(frame, detections, smoothed_fps)
             if writer is not None:
                 writer.write(annotated)
@@ -76,4 +80,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
